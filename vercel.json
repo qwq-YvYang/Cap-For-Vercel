@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "buildCommand": "tsc --noEmit",
+  "functions": {
+    "api/**/*.ts": {
+      "maxDuration": 10,
+      "runtime": "nodejs@22.x"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api/$1"
+    }
+  ]
+}
