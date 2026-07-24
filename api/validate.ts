@@ -1,60 +1,32 @@
-import { IncomingMessage, ServerResponse } from 'node:http';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { cap } from '../lib/cap';
 import { initializeDatabase } from '../lib/db';
 
-/**
- * POST /api/validate
- * 验证已颁发的令牌是否有效。
- */
 export default async function handler(
-  req: IncomingMessage,
-  res: ServerResponse
+  req: VercelRequest,
+  res: VercelResponse
 ) {
-  const setCORS = () => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  };
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') {
-    setCORS();
-    res.writeHead(200);
-    res.end();
-    return;
-  }
-
-  if (req.method !== 'POST') {
-    setCORS();
-    res.writeHead(405, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Method not allowed' }));
-    return;
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
     await initializeDatabase();
 
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) {
-      chunks.push(chunk);
-    }
-    const { token, keepToken } = JSON.parse(Buffer.concat(chunks).toString());
+    const { token, keepToken } = req.body ?? {};
 
     if (!token) {
-      setCORS();
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: false }));
-      return;
+      return res.status(400).json({ success: false });
     }
 
     const result = await cap.validateToken(token, { keepToken });
 
-    setCORS();
-    res.writeHead(result.success ? 200 : 400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: result.success }));
+    return res.status(result.success ? 200 : 400).json({ success: result.success });
   } catch (error) {
-    console.error('Failed to validate token:', error);
-    setCORS();
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: false }));
+    console.error('[cap] validate error:', error);
+    return res.status(500).json({ success: false });
   }
 }

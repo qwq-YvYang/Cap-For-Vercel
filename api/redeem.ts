@@ -1,64 +1,36 @@
-import { IncomingMessage, ServerResponse } from 'node:http';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { cap } from '../lib/cap';
 import { initializeDatabase } from '../lib/db';
 
-/**
- * POST /api/redeem
- * 验证用户提交的 PoW 解答。
- */
 export default async function handler(
-  req: IncomingMessage,
-  res: ServerResponse
+  req: VercelRequest,
+  res: VercelResponse
 ) {
-  const setCORS = () => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  };
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') {
-    setCORS();
-    res.writeHead(200);
-    res.end();
-    return;
-  }
-
-  if (req.method !== 'POST') {
-    setCORS();
-    res.writeHead(405, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Method not allowed' }));
-    return;
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
     await initializeDatabase();
 
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) {
-      chunks.push(chunk);
-    }
-    const { token, solutions } = JSON.parse(Buffer.concat(chunks).toString());
+    const { token, solutions } = req.body ?? {};
 
     if (!token || !solutions || !Array.isArray(solutions)) {
-      setCORS();
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: false, message: 'Missing token or solutions' }));
-      return;
+      return res.status(400).json({ success: false, message: 'Missing token or solutions' });
     }
 
     const result = await cap.redeemChallenge({ token, solutions });
 
     const status = !result.success
-      ? result.message === 'Challenge invalid or expired' ? 410 : 400
+      ? (result.message === 'Challenge invalid or expired' ? 410 : 400)
       : 200;
 
-    setCORS();
-    res.writeHead(status, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(result));
+    return res.status(status).json(result);
   } catch (error) {
-    console.error('Failed to redeem challenge:', error);
-    setCORS();
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: false, message: 'Internal server error' }));
+    console.error('[cap] redeem error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 }
