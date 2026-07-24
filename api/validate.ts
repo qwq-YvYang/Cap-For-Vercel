@@ -1,63 +1,60 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { IncomingMessage, ServerResponse } from 'node:http';
 import { cap } from '../lib/cap';
 import { initializeDatabase } from '../lib/db';
 
 /**
  * POST /api/validate
- *
- * 验证已颁发的令牌是否有效（未过期且未被消耗）。
- *
- * 请求体:
- *   { token: string, keepToken?: boolean }
- *
- * 响应:
- *   成功: { success: true }
- *   失败: { success: false }
+ * 验证已颁发的令牌是否有效。
  */
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(
+  req: IncomingMessage,
+  res: ServerResponse
+) {
+  const setCORS = () => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  };
+
   if (req.method === 'OPTIONS') {
-    return res.status(200)
-      .setHeader('Access-Control-Allow-Origin', '*')
-      .setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-      .setHeader('Access-Control-Allow-Headers', 'Content-Type')
-      .end();
+    setCORS();
+    res.writeHead(200);
+    res.end();
+    return;
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    setCORS();
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Method not allowed' }));
+    return;
   }
 
   try {
     await initializeDatabase();
 
-    const { token, keepToken } = req.body ?? {};
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+    const { token, keepToken } = JSON.parse(Buffer.concat(chunks).toString());
 
     if (!token) {
-      return res.status(400)
-        .setHeader('Access-Control-Allow-Origin', '*')
-        .json({ success: false });
+      setCORS();
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false }));
+      return;
     }
 
-    // validateToken 内部流程:
-    //   1. 解析 token (id:vertoken 格式)
-    //   2. 计算 SHA-256(vertoken) 得到 token_hash
-    //   3. 通过 storage.tokens.get 读取
-    //   4. 如果 keepToken 为 false，通过 storage.tokens.delete 消耗令牌
     const result = await cap.validateToken(token, { keepToken });
 
-    if (!result.success) {
-      return res.status(400)
-        .setHeader('Access-Control-Allow-Origin', '*')
-        .json({ success: false });
-    }
-
-    return res.status(200)
-      .setHeader('Access-Control-Allow-Origin', '*')
-      .json({ success: true });
+    setCORS();
+    res.writeHead(result.success ? 200 : 400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: result.success }));
   } catch (error) {
     console.error('Failed to validate token:', error);
-    return res.status(500)
-      .setHeader('Access-Control-Allow-Origin', '*')
-      .json({ success: false });
+    setCORS();
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false }));
   }
 }

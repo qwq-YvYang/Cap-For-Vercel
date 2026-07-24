@@ -1,54 +1,60 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { IncomingMessage, ServerResponse } from 'node:http';
 import { cap } from '../lib/cap';
 import { initializeDatabase } from '../lib/db';
 
 /**
  * POST /api/challenge
- *
  * 创建新的 Cap 人机验证挑战。
- * 客户端拿到 challenge + token 后渲染验证码并让用户计算 PoW 解。
- *
- * 请求体（可选）:
- *   { challengeCount?: number, challengeSize?: number, challengeDifficulty?: number, expiresMs?: number }
- *
- * 响应:
- *   { challenge: { c, s, d }, token: string, expires: number }
  */
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS 预检
+export default async function handler(
+  req: IncomingMessage,
+  res: ServerResponse
+) {
+  // 设置 CORS
+  const setCORS = () => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  };
+
   if (req.method === 'OPTIONS') {
-    return res.status(200).setHeader('Access-Control-Allow-Origin', '*')
-      .setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-      .setHeader('Access-Control-Allow-Headers', 'Content-Type')
-      .end();
+    setCORS();
+    res.writeHead(200);
+    res.end();
+    return;
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    setCORS();
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Method not allowed' }));
+    return;
   }
 
   try {
-    // 首次冷启动时初始化数据库表（幂等操作）
     await initializeDatabase();
 
-    const options = req.body ?? {};
+    // 读取请求体
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+    const body = chunks.length > 0 ? JSON.parse(Buffer.concat(chunks).toString()) : {};
 
-    // createChallenge 在 v4.0.5 中是 async 的
     const result = await cap.createChallenge({
-      challengeCount: options.challengeCount,
-      challengeSize: options.challengeSize,
-      challengeDifficulty: options.challengeDifficulty,
-      expiresMs: options.expiresMs,
+      challengeCount: body.challengeCount,
+      challengeSize: body.challengeSize,
+      challengeDifficulty: body.challengeDifficulty,
+      expiresMs: body.expiresMs,
     });
 
-    // result: { challenge: { c, s, d }, token, expires }
-    return res.status(200)
-      .setHeader('Access-Control-Allow-Origin', '*')
-      .json(result);
+    setCORS();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(result));
   } catch (error) {
     console.error('Failed to create challenge:', error);
-    return res.status(500)
-      .setHeader('Access-Control-Allow-Origin', '*')
-      .json({ error: 'Internal server error' });
+    setCORS();
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Internal server error' }));
   }
 }

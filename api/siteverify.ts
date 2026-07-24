@@ -1,67 +1,67 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { IncomingMessage, ServerResponse } from 'node:http';
 import { cap } from '../lib/cap';
 import { initializeDatabase } from '../lib/db';
 
 /**
  * POST /api/siteverify
- *
- * 兼容 Twikoo 的 Cap 官方验证接口。
- * Twikoo v1.7.14+ 通过此端点验证前端提交的 cap_token。
- *
- * 请求体:
- *   { secret: string, response: string }
- *
- * 响应:
- *   成功: { success: true }
- *   失败: { success: false, error: string }
+ * Twikoo 兼容验证接口。
  */
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(
+  req: IncomingMessage,
+  res: ServerResponse
+) {
+  const setCORS = () => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  };
+
   if (req.method === 'OPTIONS') {
-    return res.status(200)
-      .setHeader('Access-Control-Allow-Origin', '*')
-      .setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-      .setHeader('Access-Control-Allow-Headers', 'Content-Type')
-      .end();
+    setCORS();
+    res.writeHead(200);
+    res.end();
+    return;
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    setCORS();
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Method not allowed' }));
+    return;
   }
 
   try {
     await initializeDatabase();
 
-    const { secret, response: token } = req.body ?? {};
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+    const { secret, response: token } = JSON.parse(Buffer.concat(chunks).toString());
 
     if (!secret || !token) {
-      return res.status(400)
-        .setHeader('Access-Control-Allow-Origin', '*')
-        .json({ success: false, error: 'Missing secret or response' });
+      setCORS();
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Missing secret or response' }));
+      return;
     }
 
-    // 验证 CAP_SECRET_KEY
     if (secret !== process.env.CAP_SECRET_KEY) {
-      return res.status(403)
-        .setHeader('Access-Control-Allow-Origin', '*')
-        .json({ success: false, error: 'Invalid secret' });
+      setCORS();
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Invalid secret' }));
+      return;
     }
 
-    // 验证令牌（消耗该令牌，一次性使用）
     const result = await cap.validateToken(token, { keepToken: false });
 
-    if (!result.success) {
-      return res.status(400)
-        .setHeader('Access-Control-Allow-Origin', '*')
-        .json({ success: false, error: 'Invalid or expired token' });
-    }
-
-    return res.status(200)
-      .setHeader('Access-Control-Allow-Origin', '*')
-      .json({ success: true });
+    setCORS();
+    res.writeHead(result.success ? 200 : 400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: result.success }));
   } catch (error) {
     console.error('Failed to verify site token:', error);
-    return res.status(500)
-      .setHeader('Access-Control-Allow-Origin', '*')
-      .json({ success: false, error: 'Internal server error' });
+    setCORS();
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: 'Internal server error' }));
   }
 }
