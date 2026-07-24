@@ -2,9 +2,8 @@
   "version": 2,
   "buildCommand": null,
   "functions": {
-    "api/**/*.ts": {
+    "api/**/*.js": {
       "maxDuration": 10
     }
-  },
-  "outputDirectory": "public"
+  }
 }

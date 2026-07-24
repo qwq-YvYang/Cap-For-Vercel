@@ -1,19 +1,12 @@
 {
   "name": "cap-for-twikoo-vercel",
   "version": "1.0.0",
-  "description": "Cap CAPTCHA service for Twikoo, deployed on Vercel with Neon PostgreSQL",
-  "type": "module",
+  "description": "Cap CAPTCHA for Twikoo on Vercel + Neon",
   "scripts": {
     "dev": "vercel dev",
-    "deploy": "vercel deploy --prod",
-    "db:init": "psql $DATABASE_URL -f sql/init.sql"
+    "deploy": "vercel deploy --prod"
   },
   "dependencies": {
-    "@cap.js/server": "^4.0.5",
     "@neondatabase/serverless": "^1.0.0"
-  },
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "typescript": "^5.7.0"
   }
 }
